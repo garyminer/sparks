@@ -125,12 +125,12 @@ function Shell({ route, children }) {
       {tab && (
         <nav className="tabs">
           <button className={tab === 'active' ? 'on' : ''} onClick={() => navigate('/')}>Ideas</button>
-          <button className={tab === 'archive' ? 'on' : ''} onClick={() => navigate('/#/archive')}>Tried</button>
+          <button className={tab === 'archive' ? 'on' : ''} onClick={() => navigate('/archive')}>Tried</button>
         </nav>
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.1</footer>
     </div>
   )
 }
@@ -334,7 +334,7 @@ function IdeaCard({ idea, onCheck, onRestore }) {
       >
         {idea.tried ? '✓' : ''}
       </button>
-      <button className="card-body" onClick={() => navigate('/#/i/' + idea.id)}>
+      <button className="card-body" onClick={() => navigate('/i/' + idea.id)}>
         <div className="card-title">{idea.title}</div>
         {idea.description && <div className="card-desc">{idea.description}</div>}
         <div className="card-meta">
@@ -415,7 +415,7 @@ function IdeaDetail({ id }) {
 
   return (
     <div className="detail">
-      <button className="ghost back" onClick={() => navigate(idea.tried ? '/#/archive' : '/')}>← Back</button>
+      <button className="ghost back" onClick={() => navigate(idea.tried ? '/archive' : '/')}>← Back</button>
 
       <label className="fld">
         <span>Title</span>
