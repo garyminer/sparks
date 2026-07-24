@@ -130,7 +130,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.1</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.2</footer>
     </div>
   )
 }
@@ -191,14 +191,24 @@ function Board({ tab }) {
 
   const load = async () => {
     setLoading(true)
-    const { data } = await supabase.from('ideas').select('*').order('created_at', { ascending: false })
+    const { data } = await supabase
+      .from('ideas')
+      .select('*')
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: false })
     setIdeas(data || [])
     setLoading(false)
   }
   useEffect(() => { load() }, [])
 
-  const active = ideas.filter((i) => !i.tried)
-  const archived = ideas.filter((i) => i.tried)
+  const active = useMemo(() =>
+    ideas.filter((i) => !i.tried)
+      .sort((a, b) => (a.position - b.position) || (new Date(b.created_at) - new Date(a.created_at))),
+    [ideas])
+  const archived = useMemo(() =>
+    ideas.filter((i) => i.tried)
+      .sort((a, b) => new Date(b.tried_at || b.created_at) - new Date(a.tried_at || a.created_at)),
+    [ideas])
   const base = tab === 'archive' ? archived : active
 
   const filtered = useMemo(() => {
@@ -210,12 +220,31 @@ function Board({ tab }) {
 
   // optimistic helpers
   const addIdea = async ({ title, description }) => {
+    // new ideas land at the top of the priority list
+    const activePos = ideas.filter((i) => !i.tried).map((i) => i.position ?? 0)
+    const top = activePos.length ? Math.min(...activePos) - 1 : 0
     const { data, error } = await supabase
       .from('ideas')
-      .insert({ title, description: description || null })
+      .insert({ title, description: description || null, position: top })
       .select()
       .single()
     if (!error && data) setIdeas((prev) => [data, ...prev])
+  }
+
+  // Persist a new manual order: renumber active rows to 0..n, write only the ones that moved.
+  const persistReorder = async (orderedIds) => {
+    const changed = []
+    orderedIds.forEach((id, idx) => {
+      const cur = ideas.find((i) => i.id === id)
+      if (cur && cur.position !== idx) changed.push({ id, position: idx })
+    })
+    if (!changed.length) return
+    setIdeas((prev) => prev.map((i) => {
+      const u = changed.find((c) => c.id === i.id)
+      return u ? { ...i, position: u.position } : i
+    }))
+    await Promise.all(changed.map((c) =>
+      supabase.from('ideas').update({ position: c.position }).eq('id', c.id)))
   }
 
   const beginCheckOff = (idea) => setPrompting(idea)
@@ -252,6 +281,8 @@ function Board({ tab }) {
             ? 'Nothing tried yet. Check an idea off when you’ve run it.'
             : q ? 'No matches.' : 'No ideas yet — capture one above.'}
         </p>
+      ) : tab === 'active' && !q.trim() ? (
+        <SortableIdeas items={active} onCheck={beginCheckOff} onReorder={persistReorder} />
       ) : (
         <ul className="cards">
           {filtered.map((i) => (
@@ -324,9 +355,10 @@ function Capture({ onAdd }) {
   )
 }
 
-function IdeaCard({ idea, onCheck, onRestore }) {
+function IdeaCard({ idea, onCheck, onRestore, innerRef, dragging, dragHandle }) {
   return (
-    <li className={'card' + (idea.tried ? ' done' : '')}>
+    <li ref={innerRef} className={'card' + (idea.tried ? ' done' : '') + (dragging ? ' dragging' : '')}>
+      {dragHandle}
       <button
         className={'check' + (idea.tried ? ' on' : '')}
         aria-label={idea.tried ? 'Restore to ideas' : 'Mark as tried'}
@@ -344,6 +376,80 @@ function IdeaCard({ idea, onCheck, onRestore }) {
         {idea.tried && idea.outcome && <div className="card-outcome">{idea.outcome}</div>}
       </button>
     </li>
+  )
+}
+
+// Touch + mouse drag-to-reorder via Pointer Events (works on iOS Safari).
+// A dedicated grip handle starts the drag, so normal scrolling and taps on the
+// rest of the card keep working. On drop, the parent persists the new order.
+function SortableIdeas({ items, onCheck, onReorder }) {
+  const [order, setOrder] = useState(items)
+  const [dragId, setDragId] = useState(null)
+  const draggingRef = useRef(false)
+  const els = useRef(new Map())
+
+  // Resync with incoming data whenever we're not mid-drag.
+  useEffect(() => { if (!draggingRef.current) setOrder(items) }, [items])
+
+  const setEl = (id) => (el) => { el ? els.current.set(id, el) : els.current.delete(id) }
+
+  const down = (id) => (e) => {
+    e.preventDefault()
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
+    draggingRef.current = true
+    setDragId(id)
+  }
+  const move = (e) => {
+    if (!draggingRef.current || dragId == null) return
+    const y = e.clientY
+    const ids = order
+    let target = ids.length - 1
+    for (let i = 0; i < ids.length; i++) {
+      const el = els.current.get(ids[i].id)
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      if (y < r.top + r.height / 2) { target = i; break }
+    }
+    const from = ids.findIndex((x) => x.id === dragId)
+    if (from < 0 || from === target) return
+    const next = ids.slice()
+    next.splice(target, 0, next.splice(from, 1)[0])
+    setOrder(next)
+  }
+  const up = (e) => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    setDragId(null)
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+    onReorder(order.map((x) => x.id))
+  }
+
+  return (
+    <>
+      {items.length > 1 && <p className="reorder-hint">Drag <span>⠿</span> to reorder by priority</p>}
+      <ul className={'cards' + (dragId ? ' is-dragging' : '')}>
+        {order.map((idea) => (
+          <IdeaCard
+            key={idea.id}
+            idea={idea}
+            innerRef={setEl(idea.id)}
+            dragging={dragId === idea.id}
+            onCheck={() => onCheck(idea)}
+            onRestore={() => {}}
+            dragHandle={
+              <button
+                className="handle"
+                aria-label="Drag to reorder"
+                onPointerDown={down(idea.id)}
+                onPointerMove={move}
+                onPointerUp={up}
+                onPointerCancel={up}
+              >⠿</button>
+            }
+          />
+        ))}
+      </ul>
+    </>
   )
 }
 

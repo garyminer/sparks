@@ -109,8 +109,26 @@ input, textarea { font: inherit; }
   display: flex; gap: 12px; align-items: flex-start;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 14px;
+  transition: box-shadow .15s ease, transform .12s ease, opacity .12s ease;
 }
 .card.done { opacity: .82; }
+.card.dragging { opacity: .95; transform: scale(1.015); box-shadow: 0 12px 30px rgba(0,0,0,.5);
+  border-color: var(--accent); position: relative; z-index: 5; }
+.cards.is-dragging { user-select: none; -webkit-user-select: none; }
+
+/* drag handle */
+.handle {
+  flex: 0 0 auto; align-self: stretch; width: 26px;
+  margin: -14px 0 -14px -8px;                 /* expand the grab target into card padding */
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: 0; color: var(--muted);
+  font-size: 20px; line-height: 1; letter-spacing: 2px;
+  cursor: grab; touch-action: none;           /* start-on-handle never scrolls the page */
+  user-select: none; -webkit-user-select: none;
+}
+.handle:active { cursor: grabbing; color: var(--ink); }
+.reorder-hint { color: var(--muted); font-size: 12px; margin: -2px 2px 10px; }
+.reorder-hint span { color: var(--accent-text); }
 .check {
   flex: 0 0 auto; width: 26px; height: 26px; margin-top: 2px;
   border-radius: 8px; border: 2px solid var(--line);
