@@ -130,7 +130,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.4</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.5</footer>
     </div>
   )
 }
@@ -476,7 +476,12 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
   const els = useRef(new Map())
   const orderRef = useRef(items)      // live order for the rAF loop
   const dragIdRef = useRef(null)
-  const lastYRef = useRef(0)          // latest pointer Y (viewport coords)
+  const lastXRef = useRef(0)
+  const lastYRef = useRef(0)          // latest pointer position (viewport coords)
+  const grabDXRef = useRef(0)         // where inside the card the finger grabbed
+  const grabDYRef = useRef(0)
+  const widthRef = useRef(0)
+  const cloneRef = useRef(null)       // the floating element that tracks the finger
   const rafRef = useRef(0)
 
   // Resync with incoming data whenever we're not mid-drag.
@@ -484,10 +489,17 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
 
   const setEl = (id) => (el) => { el ? els.current.set(id, el) : els.current.delete(id) }
-
   const setBoth = (next) => { orderRef.current = next; setOrder(next) }
 
-  // Move the dragged card to wherever pointer-Y currently sits.
+  // Pin the floating clone under the finger (direct DOM write = no React churn).
+  const positionClone = () => {
+    const node = cloneRef.current
+    if (!node) return
+    node.style.transform =
+      `translate(${lastXRef.current - grabDXRef.current}px, ${lastYRef.current - grabDYRef.current}px)`
+  }
+
+  // Slot the dragged item wherever the finger currently sits.
   const reorderTo = (y) => {
     const ids = orderRef.current
     const id = dragIdRef.current
@@ -510,8 +522,7 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
   const EDGE = 90, MAX_SPEED = 16
   const autoScroll = () => {
     if (!draggingRef.current) return
-    const y = lastYRef.current
-    const vh = window.innerHeight
+    const y = lastYRef.current, vh = window.innerHeight
     let dy = 0
     if (y < EDGE) dy = -Math.ceil(MAX_SPEED * (EDGE - y) / EDGE)
     else if (y > vh - EDGE) dy = Math.ceil(MAX_SPEED * (y - (vh - EDGE)) / EDGE)
@@ -521,17 +532,26 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
 
   const down = (id) => (e) => {
     e.preventDefault()
+    const li = els.current.get(id)
+    const r = li ? li.getBoundingClientRect() : { left: 0, top: 0, width: 0 }
+    grabDXRef.current = e.clientX - r.left
+    grabDYRef.current = e.clientY - r.top
+    widthRef.current = r.width
+    lastXRef.current = e.clientX
+    lastYRef.current = e.clientY
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
     draggingRef.current = true
     dragIdRef.current = id
-    lastYRef.current = e.clientY
     setDragId(id)
+    requestAnimationFrame(positionClone)     // place clone once it has mounted
     cancelAnimationFrame(rafRef.current)
     rafRef.current = requestAnimationFrame(autoScroll)
   }
   const move = (e) => {
     if (!draggingRef.current) return
+    lastXRef.current = e.clientX
     lastYRef.current = e.clientY
+    positionClone()
     reorderTo(e.clientY)
   }
   const up = (e) => {
@@ -544,6 +564,12 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
     onReorder(orderRef.current.map((x) => x.id))
   }
 
+  const dragged = dragId ? order.find((i) => i.id === dragId) : null
+  const cloneStyle = {
+    width: widthRef.current,
+    transform: `translate(${lastXRef.current - grabDXRef.current}px, ${lastYRef.current - grabDYRef.current}px)`,
+  }
+
   return (
     <>
       {items.length > 1 && <p className="reorder-hint">Drag <span>⠿</span> to reorder by priority</p>}
@@ -553,7 +579,7 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
             key={idea.id}
             idea={idea}
             innerRef={setEl(idea.id)}
-            dragging={dragId === idea.id}
+            dragging={dragId === idea.id}   /* renders as a placeholder gap */
             onCheck={() => onCheck(idea)}
             onRestore={() => {}}
             onTag={onTag}
@@ -570,6 +596,12 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
           />
         ))}
       </ul>
+
+      {dragged && (
+        <ul className="cards clone-layer" ref={cloneRef} style={cloneStyle} aria-hidden="true">
+          <IdeaCard idea={dragged} onCheck={() => {}} onRestore={() => {}} onTag={() => {}} />
+        </ul>
+      )}
     </>
   )
 }

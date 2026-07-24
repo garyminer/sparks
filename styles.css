@@ -112,9 +112,22 @@ input, textarea { font: inherit; }
   transition: box-shadow .15s ease, transform .12s ease, opacity .12s ease;
 }
 .card.done { opacity: .82; }
-.card.dragging { opacity: .95; transform: scale(1.015); box-shadow: 0 12px 30px rgba(0,0,0,.5);
-  border-color: var(--accent); position: relative; z-index: 5; }
+.card.dragging { opacity: .3; border-style: dashed; box-shadow: none; }
+.card.dragging .card-main, .card.dragging .check, .card.dragging .handle { visibility: hidden; }
 .cards.is-dragging { user-select: none; -webkit-user-select: none; }
+
+/* floating clone that tracks the finger during a drag */
+.clone-layer {
+  position: fixed; top: 0; left: 0; margin: 0; padding: 0; list-style: none;
+  z-index: 1000; pointer-events: none; will-change: transform;
+}
+.clone-layer .card {
+  transform: scale(1.02); opacity: 1;
+  border-color: var(--accent);
+  box-shadow: 0 18px 44px rgba(0,0,0,.55);
+  transition: none;
+}
+.clone-layer .handle { color: var(--ink); }
 
 /* drag handle */
 .handle {
