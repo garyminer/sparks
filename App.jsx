@@ -130,7 +130,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.2</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.3</footer>
     </div>
   )
 }
@@ -187,6 +187,7 @@ function Board({ tab }) {
   const [ideas, setIdeas] = useState([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
+  const [activeTag, setActiveTag] = useState(null)
   const [prompting, setPrompting] = useState(null) // idea being checked off
 
   const load = async () => {
@@ -211,21 +212,31 @@ function Board({ tab }) {
     [ideas])
   const base = tab === 'archive' ? archived : active
 
+  const allTags = useMemo(() => {
+    const s = new Set()
+    ideas.forEach((i) => (i.tags || []).forEach((t) => s.add(t)))
+    return [...s].sort()
+  }, [ideas])
+  const toggleTag = (t) => setActiveTag((cur) => (cur === t ? null : t))
+
   const filtered = useMemo(() => {
+    let list = base
+    if (activeTag) list = list.filter((i) => (i.tags || []).includes(activeTag))
     const t = q.trim().toLowerCase()
-    if (!t) return base
-    return base.filter((i) =>
-      [i.title, i.description, i.outcome].filter(Boolean).join(' ').toLowerCase().includes(t))
-  }, [base, q])
+    if (t) list = list.filter((i) =>
+      [i.title, i.description, i.outcome, ...(i.tags || [])]
+        .filter(Boolean).join(' ').toLowerCase().includes(t))
+    return list
+  }, [base, q, activeTag])
 
   // optimistic helpers
-  const addIdea = async ({ title, description }) => {
+  const addIdea = async ({ title, description, tags }) => {
     // new ideas land at the top of the priority list
     const activePos = ideas.filter((i) => !i.tried).map((i) => i.position ?? 0)
     const top = activePos.length ? Math.min(...activePos) - 1 : 0
     const { data, error } = await supabase
       .from('ideas')
-      .insert({ title, description: description || null, position: top })
+      .insert({ title, description: description || null, position: top, tags: tags || [] })
       .select()
       .single()
     if (!error && data) setIdeas((prev) => [data, ...prev])
@@ -265,7 +276,7 @@ function Board({ tab }) {
 
   return (
     <>
-      {tab === 'active' && <Capture onAdd={addIdea} />}
+      {tab === 'active' && <Capture onAdd={addIdea} allTags={allTags} />}
 
       <div className="listhead">
         <input className="search" placeholder={tab === 'archive' ? 'Search tried ideas' : 'Search ideas'}
@@ -273,22 +284,35 @@ function Board({ tab }) {
         <span className="count">{filtered.length}</span>
       </div>
 
+      {allTags.length > 0 && (
+        <div className="tagfilter">
+          {allTags.map((t) => (
+            <button key={t} className={'tagchip' + (activeTag === t ? ' on' : '')}
+              onClick={() => toggleTag(t)}>{t}</button>
+          ))}
+          {activeTag && (
+            <button className="tagchip clear" onClick={() => setActiveTag(null)}>clear ✕</button>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p className="muted pad">Loading…</p>
       ) : filtered.length === 0 ? (
         <p className="muted pad">
           {tab === 'archive'
-            ? 'Nothing tried yet. Check an idea off when you’ve run it.'
-            : q ? 'No matches.' : 'No ideas yet — capture one above.'}
+            ? (activeTag || q ? 'No tried ideas match.' : 'Nothing tried yet. Check an idea off when you’ve run it.')
+            : activeTag || q ? 'No matches.' : 'No ideas yet — capture one above.'}
         </p>
-      ) : tab === 'active' && !q.trim() ? (
-        <SortableIdeas items={active} onCheck={beginCheckOff} onReorder={persistReorder} />
+      ) : tab === 'active' && !q.trim() && !activeTag ? (
+        <SortableIdeas items={active} onCheck={beginCheckOff} onReorder={persistReorder} onTag={toggleTag} />
       ) : (
         <ul className="cards">
           {filtered.map((i) => (
             <IdeaCard key={i.id} idea={i}
               onCheck={() => beginCheckOff(i)}
-              onRestore={() => restore(i)} />
+              onRestore={() => restore(i)}
+              onTag={toggleTag} />
           ))}
         </ul>
       )}
@@ -302,9 +326,10 @@ function Board({ tab }) {
   )
 }
 
-function Capture({ onAdd }) {
+function Capture({ onAdd, allTags }) {
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
+  const [tags, setTags] = useState([])
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -312,8 +337,8 @@ function Capture({ onAdd }) {
     const t = title.trim()
     if (!t) return
     setBusy(true)
-    await onAdd({ title: t, description: desc.trim() })
-    setTitle(''); setDesc(''); setOpen(false); setBusy(false)
+    await onAdd({ title: t, description: desc.trim(), tags })
+    setTitle(''); setDesc(''); setTags([]); setOpen(false); setBusy(false)
   }
 
   return (
@@ -342,11 +367,12 @@ function Capture({ onAdd }) {
             />
             <MicButton onAppend={appendText(setDesc)} />
           </div>
+          <TagEditor value={tags} onChange={setTags} suggestions={allTags} />
           {!SPEECH_SUPPORTED && (
             <p className="hint">🎤 Tip: tap the microphone on your keyboard to dictate.</p>
           )}
           <div className="cap-actions">
-            <button className="ghost" onClick={() => { setOpen(false); setDesc('') }}>Cancel</button>
+            <button className="ghost" onClick={() => { setOpen(false); setDesc(''); setTags([]) }}>Cancel</button>
             <button className="primary" disabled={busy || !title.trim()} onClick={submit}>Add idea</button>
           </div>
         </>
@@ -355,7 +381,59 @@ function Capture({ onAdd }) {
   )
 }
 
-function IdeaCard({ idea, onCheck, onRestore, innerRef, dragging, dragHandle }) {
+// Normalize tags: lowercase, collapse whitespace, cap length.
+const normalizeTag = (s) => s.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 30)
+
+function TagEditor({ value, onChange, suggestions = [] }) {
+  const [input, setInput] = useState('')
+  const addMany = (raws) => {
+    const clean = raws.map(normalizeTag).filter(Boolean).filter((t) => !value.includes(t))
+    const uniq = [...new Set(clean)]
+    if (uniq.length) onChange([...value, ...uniq])
+    setInput('')
+  }
+  const remove = (t) => onChange(value.filter((x) => x !== t))
+  const onKey = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); if (input.trim()) addMany([input]) }
+    else if (e.key === 'Backspace' && !input && value.length) remove(value[value.length - 1])
+  }
+  const sugg = suggestions.filter((s) => !value.includes(s)).slice(0, 8)
+
+  return (
+    <div className="tageditor">
+      <div className="taginput-row">
+        {value.map((t) => (
+          <span key={t} className="tag removable">
+            {t}
+            <button type="button" className="tagx" aria-label={'Remove ' + t} onClick={() => remove(t)}>✕</button>
+          </span>
+        ))}
+        <input
+          className="tagfield"
+          placeholder={value.length ? 'add tag' : 'tags (e.g. coding, writing)'}
+          value={input}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v.includes(',')) addMany(v.split(','))
+            else setInput(v)
+          }}
+          onKeyDown={onKey}
+          onBlur={() => input.trim() && addMany([input])}
+        />
+      </div>
+      {sugg.length > 0 && (
+        <div className="tagsugg">
+          {sugg.map((s) => (
+            <button key={s} type="button" className="tagchip" onClick={() => addMany([s])}>+ {s}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IdeaCard({ idea, onCheck, onRestore, onTag, innerRef, dragging, dragHandle }) {
+  const tags = idea.tags || []
   return (
     <li ref={innerRef} className={'card' + (idea.tried ? ' done' : '') + (dragging ? ' dragging' : '')}>
       {dragHandle}
@@ -366,15 +444,24 @@ function IdeaCard({ idea, onCheck, onRestore, innerRef, dragging, dragHandle }) 
       >
         {idea.tried ? '✓' : ''}
       </button>
-      <button className="card-body" onClick={() => navigate('/i/' + idea.id)}>
-        <div className="card-title">{idea.title}</div>
-        {idea.description && <div className="card-desc">{idea.description}</div>}
-        <div className="card-meta">
-          <span>{fmtDate(idea.created_at)}</span>
-          {idea.tried && idea.tried_at && <span>· tried {fmtDate(idea.tried_at)}</span>}
-        </div>
-        {idea.tried && idea.outcome && <div className="card-outcome">{idea.outcome}</div>}
-      </button>
+      <div className="card-main">
+        <button className="card-body" onClick={() => navigate('/i/' + idea.id)}>
+          <div className="card-title">{idea.title}</div>
+          {idea.description && <div className="card-desc">{idea.description}</div>}
+          <div className="card-meta">
+            <span>{fmtDate(idea.created_at)}</span>
+            {idea.tried && idea.tried_at && <span>· tried {fmtDate(idea.tried_at)}</span>}
+          </div>
+          {idea.tried && idea.outcome && <div className="card-outcome">{idea.outcome}</div>}
+        </button>
+        {tags.length > 0 && (
+          <div className="tagrow">
+            {tags.map((t) => (
+              <button key={t} type="button" className="tag" onClick={() => onTag && onTag(t)}>{t}</button>
+            ))}
+          </div>
+        )}
+      </div>
     </li>
   )
 }
@@ -382,7 +469,7 @@ function IdeaCard({ idea, onCheck, onRestore, innerRef, dragging, dragHandle }) 
 // Touch + mouse drag-to-reorder via Pointer Events (works on iOS Safari).
 // A dedicated grip handle starts the drag, so normal scrolling and taps on the
 // rest of the card keep working. On drop, the parent persists the new order.
-function SortableIdeas({ items, onCheck, onReorder }) {
+function SortableIdeas({ items, onCheck, onReorder, onTag }) {
   const [order, setOrder] = useState(items)
   const [dragId, setDragId] = useState(null)
   const draggingRef = useRef(false)
@@ -436,6 +523,7 @@ function SortableIdeas({ items, onCheck, onReorder }) {
             dragging={dragId === idea.id}
             onCheck={() => onCheck(idea)}
             onRestore={() => {}}
+            onTag={onTag}
             dragHandle={
               <button
                 className="handle"
@@ -483,12 +571,22 @@ function IdeaDetail({ id }) {
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
   const [outcome, setOutcome] = useState('')
+  const [tags, setTags] = useState([])
+  const [suggestions, setSuggestions] = useState([])
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     supabase.from('ideas').select('*').eq('id', id).maybeSingle().then(({ data }) => {
       setIdea(data || null)
-      if (data) { setTitle(data.title); setDesc(data.description || ''); setOutcome(data.outcome || '') }
+      if (data) {
+        setTitle(data.title); setDesc(data.description || '')
+        setOutcome(data.outcome || ''); setTags(data.tags || [])
+      }
+    })
+    supabase.from('ideas').select('tags').then(({ data }) => {
+      const s = new Set()
+      ;(data || []).forEach((r) => (r.tags || []).forEach((t) => s.add(t)))
+      setSuggestions([...s].sort())
     })
   }, [id])
 
@@ -501,7 +599,12 @@ function IdeaDetail({ id }) {
   )
 
   const save = async () => {
-    const patch = { title: title.trim() || idea.title, description: desc.trim() || null, outcome: outcome.trim() || null }
+    const patch = {
+      title: title.trim() || idea.title,
+      description: desc.trim() || null,
+      outcome: outcome.trim() || null,
+      tags,
+    }
     setIdea((p) => ({ ...p, ...patch }))
     await supabase.from('ideas').update(patch).eq('id', idea.id)
     setSaved(true); setTimeout(() => setSaved(false), 1500)
@@ -538,6 +641,11 @@ function IdeaDetail({ id }) {
           <MicButton onAppend={appendText(setDesc)} />
         </div>
       </label>
+
+      <div className="fld">
+        <span>Tags</span>
+        <TagEditor value={tags} onChange={setTags} suggestions={suggestions} />
+      </div>
 
       <label className="fld">
         <span>Results / thoughts</span>
