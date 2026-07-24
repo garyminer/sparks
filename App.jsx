@@ -130,7 +130,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.3</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.4</footer>
     </div>
   )
 }
@@ -474,22 +474,24 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
   const [dragId, setDragId] = useState(null)
   const draggingRef = useRef(false)
   const els = useRef(new Map())
+  const orderRef = useRef(items)      // live order for the rAF loop
+  const dragIdRef = useRef(null)
+  const lastYRef = useRef(0)          // latest pointer Y (viewport coords)
+  const rafRef = useRef(0)
 
   // Resync with incoming data whenever we're not mid-drag.
-  useEffect(() => { if (!draggingRef.current) setOrder(items) }, [items])
+  useEffect(() => { if (!draggingRef.current) { setOrder(items); orderRef.current = items } }, [items])
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
 
   const setEl = (id) => (el) => { el ? els.current.set(id, el) : els.current.delete(id) }
 
-  const down = (id) => (e) => {
-    e.preventDefault()
-    try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
-    draggingRef.current = true
-    setDragId(id)
-  }
-  const move = (e) => {
-    if (!draggingRef.current || dragId == null) return
-    const y = e.clientY
-    const ids = order
+  const setBoth = (next) => { orderRef.current = next; setOrder(next) }
+
+  // Move the dragged card to wherever pointer-Y currently sits.
+  const reorderTo = (y) => {
+    const ids = orderRef.current
+    const id = dragIdRef.current
+    if (id == null) return
     let target = ids.length - 1
     for (let i = 0; i < ids.length; i++) {
       const el = els.current.get(ids[i].id)
@@ -497,18 +499,49 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
       const r = el.getBoundingClientRect()
       if (y < r.top + r.height / 2) { target = i; break }
     }
-    const from = ids.findIndex((x) => x.id === dragId)
+    const from = ids.findIndex((x) => x.id === id)
     if (from < 0 || from === target) return
     const next = ids.slice()
     next.splice(target, 0, next.splice(from, 1)[0])
-    setOrder(next)
+    setBoth(next)
+  }
+
+  // Scroll the page when the finger nears the top/bottom edge, then re-sort.
+  const EDGE = 90, MAX_SPEED = 16
+  const autoScroll = () => {
+    if (!draggingRef.current) return
+    const y = lastYRef.current
+    const vh = window.innerHeight
+    let dy = 0
+    if (y < EDGE) dy = -Math.ceil(MAX_SPEED * (EDGE - y) / EDGE)
+    else if (y > vh - EDGE) dy = Math.ceil(MAX_SPEED * (y - (vh - EDGE)) / EDGE)
+    if (dy !== 0) { window.scrollBy(0, dy); reorderTo(y) }
+    rafRef.current = requestAnimationFrame(autoScroll)
+  }
+
+  const down = (id) => (e) => {
+    e.preventDefault()
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
+    draggingRef.current = true
+    dragIdRef.current = id
+    lastYRef.current = e.clientY
+    setDragId(id)
+    cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(autoScroll)
+  }
+  const move = (e) => {
+    if (!draggingRef.current) return
+    lastYRef.current = e.clientY
+    reorderTo(e.clientY)
   }
   const up = (e) => {
     if (!draggingRef.current) return
     draggingRef.current = false
+    dragIdRef.current = null
+    cancelAnimationFrame(rafRef.current)
     setDragId(null)
     try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
-    onReorder(order.map((x) => x.id))
+    onReorder(orderRef.current.map((x) => x.id))
   }
 
   return (
