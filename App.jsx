@@ -38,15 +38,53 @@ export default function App() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  if (checking) return <Splash />
-  if (!session) return <SignIn />
-
-  return (
+  let content
+  if (checking) content = <Splash />
+  else if (!session) content = <SignIn />
+  else content = (
     <Shell route={route}>
       {route.name === 'idea'
         ? <IdeaDetail id={route.id} />
         : <Board tab={route.name === 'archive' ? 'archive' : 'active'} />}
     </Shell>
+  )
+
+  return <>{content}<KeyboardBar /></>
+}
+
+// iOS Safari often shows no "Done" key for plain text fields, so the keyboard
+// can be hard to dismiss. This floats a "Hide keyboard" bar just above the
+// keyboard whenever an input/textarea is focused; tapping it blurs the field.
+function KeyboardBar() {
+  const [show, setShow] = useState(false)
+  const [bottom, setBottom] = useState(null) // px above viewport bottom, or null = pin to top
+
+  useEffect(() => {
+    const vv = window.visualViewport
+    const isField = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
+    const onFocusIn = (e) => { if (isField(e.target)) setShow(true) }
+    const onFocusOut = () => setTimeout(() => setShow(isField(document.activeElement)), 60)
+    const onResize = () => {
+      if (!vv) { setBottom(null); return }
+      setBottom(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)))
+    }
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('focusout', onFocusOut)
+    if (vv) { vv.addEventListener('resize', onResize); vv.addEventListener('scroll', onResize) }
+    onResize()
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('focusout', onFocusOut)
+      if (vv) { vv.removeEventListener('resize', onResize); vv.removeEventListener('scroll', onResize) }
+    }
+  }, [])
+
+  if (!show) return null
+  const dismiss = (e) => { e.preventDefault(); const el = document.activeElement; if (el && el.blur) el.blur() }
+  return (
+    <div className={'kbbar' + (bottom == null ? ' kbbar-top' : '')} style={bottom == null ? undefined : { bottom }}>
+      <button type="button" className="kbbar-btn" onPointerDown={dismiss}>Hide keyboard ⌄</button>
+    </div>
   )
 }
 
@@ -82,7 +120,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.7</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.8</footer>
     </div>
   )
 }

@@ -251,3 +251,18 @@ input, textarea { font: inherit; }
 .splash { min-height: 100vh; display: flex; align-items: center; justify-content: center;
   gap: 10px; font-size: 22px; font-weight: 700; color: var(--muted); }
 code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+
+/* floating "hide keyboard" bar (iOS) */
+.kbbar {
+  position: fixed; left: 0; right: 0; z-index: 1100;
+  display: flex; justify-content: flex-end;
+  padding: 6px 12px; pointer-events: none;
+}
+.kbbar-top { top: env(safe-area-inset-top); bottom: auto; }
+.kbbar-btn {
+  pointer-events: auto;
+  background: var(--accent); color: #fff; border: 0;
+  border-radius: 999px; padding: 8px 15px; font-weight: 650; font-size: 13.5px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+}
+.kbbar-btn:active { background: var(--accent-hover); }
