@@ -130,7 +130,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.5</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.6</footer>
     </div>
   )
 }
@@ -483,10 +483,22 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
   const widthRef = useRef(0)
   const cloneRef = useRef(null)       // the floating element that tracks the finger
   const rafRef = useRef(0)
+  const onReorderRef = useRef(onReorder)
+  const winMoveRef = useRef(null)     // window listeners active during a drag
+  const winUpRef = useRef(null)
+
+  useEffect(() => { onReorderRef.current = onReorder }, [onReorder])
 
   // Resync with incoming data whenever we're not mid-drag.
   useEffect(() => { if (!draggingRef.current) { setOrder(items); orderRef.current = items } }, [items])
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
+  useEffect(() => () => {
+    cancelAnimationFrame(rafRef.current)
+    if (winMoveRef.current) window.removeEventListener('pointermove', winMoveRef.current)
+    if (winUpRef.current) {
+      window.removeEventListener('pointerup', winUpRef.current)
+      window.removeEventListener('pointercancel', winUpRef.current)
+    }
+  }, [])
 
   const setEl = (id) => (el) => { el ? els.current.set(id, el) : els.current.delete(id) }
   const setBoth = (next) => { orderRef.current = next; setOrder(next) }
@@ -530,6 +542,22 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
     rafRef.current = requestAnimationFrame(autoScroll)
   }
 
+  const endDrag = () => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    dragIdRef.current = null
+    cancelAnimationFrame(rafRef.current)
+    if (winMoveRef.current) window.removeEventListener('pointermove', winMoveRef.current)
+    if (winUpRef.current) {
+      window.removeEventListener('pointerup', winUpRef.current)
+      window.removeEventListener('pointercancel', winUpRef.current)
+    }
+    winMoveRef.current = null
+    winUpRef.current = null
+    setDragId(null)
+    onReorderRef.current(orderRef.current.map((x) => x.id))
+  }
+
   const down = (id) => (e) => {
     e.preventDefault()
     const li = els.current.get(id)
@@ -539,29 +567,28 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
     widthRef.current = r.width
     lastXRef.current = e.clientX
     lastYRef.current = e.clientY
-    try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
     draggingRef.current = true
     dragIdRef.current = id
     setDragId(id)
+
+    // Listen on window so release is caught no matter how the DOM reorders.
+    const onMove = (ev) => {
+      if (!draggingRef.current) return
+      ev.preventDefault()
+      lastXRef.current = ev.clientX
+      lastYRef.current = ev.clientY
+      positionClone()
+      reorderTo(ev.clientY)
+    }
+    winMoveRef.current = onMove
+    winUpRef.current = endDrag
+    window.addEventListener('pointermove', onMove, { passive: false })
+    window.addEventListener('pointerup', endDrag)
+    window.addEventListener('pointercancel', endDrag)
+
     requestAnimationFrame(positionClone)     // place clone once it has mounted
     cancelAnimationFrame(rafRef.current)
     rafRef.current = requestAnimationFrame(autoScroll)
-  }
-  const move = (e) => {
-    if (!draggingRef.current) return
-    lastXRef.current = e.clientX
-    lastYRef.current = e.clientY
-    positionClone()
-    reorderTo(e.clientY)
-  }
-  const up = (e) => {
-    if (!draggingRef.current) return
-    draggingRef.current = false
-    dragIdRef.current = null
-    cancelAnimationFrame(rafRef.current)
-    setDragId(null)
-    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
-    onReorder(orderRef.current.map((x) => x.id))
   }
 
   const dragged = dragId ? order.find((i) => i.id === dragId) : null
@@ -588,9 +615,6 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
                 className="handle"
                 aria-label="Drag to reorder"
                 onPointerDown={down(idea.id)}
-                onPointerMove={move}
-                onPointerUp={up}
-                onPointerCancel={up}
               >⠿</button>
             }
           />
