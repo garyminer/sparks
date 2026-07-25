@@ -83,17 +83,6 @@ input, textarea { font: inherit; }
 .cap-title { font-size: 16px; }
 .cap-desc, textarea { resize: vertical; line-height: 1.45; }
 .cap-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-.hint { color: var(--muted); font-size: 12.5px; margin: 8px 2px 0; }
-
-/* mic */
-.mic {
-  flex: 0 0 auto; width: 46px; height: 46px;
-  border-radius: 10px; border: 1px solid var(--line);
-  background: var(--surface-2); color: var(--ink);
-  font-size: 18px; line-height: 1;
-}
-.mic:hover { border-color: var(--accent); }
-.mic-on { background: var(--danger); border-color: var(--danger); color: #fff; font-size: 12px; font-weight: 700; }
 
 /* list head */
 .listhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

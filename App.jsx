@@ -20,54 +20,6 @@ function parseRoute(h) {
 }
 const navigate = (to) => { window.location.hash = to }
 
-/* --------------------------- speech-to-text ---------------------------- */
-// One-tap dictation for browsers that support the Web Speech API (Chrome,
-// Android, desktop Chrome/Edge). iOS Safari doesn't, so the button hides
-// itself there and a hint points you at the keyboard's mic key instead.
-const SPEECH_SUPPORTED =
-  typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition)
-
-function MicButton({ onAppend }) {
-  const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
-  const [listening, setListening] = useState(false)
-  const recRef = useRef(null)
-  if (!SR) return null
-
-  const toggle = () => {
-    if (listening) { try { recRef.current?.stop() } catch {} ; return }
-    const rec = new SR()
-    rec.lang = navigator.language || 'en-US'
-    rec.interimResults = false
-    rec.continuous = false
-    rec.onresult = (e) => {
-      let t = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) t += e.results[i][0].transcript
-      }
-      if (t) onAppend(t.trim())
-    }
-    rec.onend = () => setListening(false)
-    rec.onerror = () => setListening(false)
-    recRef.current = rec
-    try { rec.start(); setListening(true) } catch { setListening(false) }
-  }
-
-  return (
-    <button
-      type="button"
-      className={'mic' + (listening ? ' mic-on' : '')}
-      onClick={toggle}
-      title="Dictate"
-      aria-label="Dictate"
-    >
-      {listening ? '● rec' : '🎤'}
-    </button>
-  )
-}
-
-const appendText = (setter) => (text) =>
-  setter((prev) => (prev ? prev.replace(/\s*$/, '') + ' ' + text : text))
-
 const fmtDate = (s) =>
   new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 
@@ -130,7 +82,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.6</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.7</footer>
     </div>
   )
 }
@@ -352,7 +304,6 @@ function Capture({ onAdd, allTags }) {
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
         />
-        <MicButton onAppend={appendText(setTitle)} />
       </div>
 
       {open && (
@@ -365,12 +316,8 @@ function Capture({ onAdd, allTags }) {
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
             />
-            <MicButton onAppend={appendText(setDesc)} />
           </div>
           <TagEditor value={tags} onChange={setTags} suggestions={allTags} />
-          {!SPEECH_SUPPORTED && (
-            <p className="hint">🎤 Tip: tap the microphone on your keyboard to dictate.</p>
-          )}
           <div className="cap-actions">
             <button className="ghost" onClick={() => { setOpen(false); setDesc(''); setTags([]) }}>Cancel</button>
             <button className="primary" disabled={busy || !title.trim()} onClick={submit}>Add idea</button>
@@ -643,7 +590,6 @@ function OutcomeModal({ idea, onCancel, onSave }) {
         <div className="cap-row">
           <textarea rows={5} autoFocus placeholder="What happened when you tried it?"
             value={text} onChange={(e) => setText(e.target.value)} />
-          <MicButton onAppend={appendText(setText)} />
         </div>
         <div className="cap-actions">
           <button className="ghost" onClick={onCancel}>Cancel</button>
@@ -719,7 +665,6 @@ function IdeaDetail({ id }) {
         <span>Title</span>
         <div className="cap-row">
           <input value={title} onChange={(e) => setTitle(e.target.value)} />
-          <MicButton onAppend={appendText(setTitle)} />
         </div>
       </label>
 
@@ -727,7 +672,6 @@ function IdeaDetail({ id }) {
         <span>Details</span>
         <div className="cap-row">
           <textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} />
-          <MicButton onAppend={appendText(setDesc)} />
         </div>
       </label>
 
@@ -741,7 +685,6 @@ function IdeaDetail({ id }) {
         <div className="cap-row">
           <textarea rows={5} value={outcome} onChange={(e) => setOutcome(e.target.value)}
             placeholder="What happened when you tried it?" />
-          <MicButton onAppend={appendText(setOutcome)} />
         </div>
       </label>
 
