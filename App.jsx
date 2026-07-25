@@ -23,6 +23,10 @@ const navigate = (to) => { window.location.hash = to }
 const fmtDate = (s) =>
   new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 
+// Which AI platform an idea was tried on.
+const PLATFORMS = [['claude', 'Claude'], ['codex', 'Codex'], ['copilot', 'Copilot'], ['other', 'Other']]
+const platformLabel = (v) => (PLATFORMS.find(([k]) => k === v) || [])[1] || null
+
 /* ================================ App ================================== */
 export default function App() {
   const [session, setSession] = useState(null)
@@ -120,7 +124,7 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.8</footer>
+      <footer className="foot">Capture fast · try it · check it off with what you learned · v1.9</footer>
     </div>
   )
 }
@@ -250,10 +254,15 @@ function Board({ tab }) {
 
   const beginCheckOff = (idea) => setPrompting(idea)
 
-  const confirmCheckOff = async (outcome) => {
+  const confirmCheckOff = async (outcome, platform) => {
     const idea = prompting
     setPrompting(null)
-    const patch = { tried: true, tried_at: new Date().toISOString(), outcome: outcome || idea.outcome || null }
+    const patch = {
+      tried: true,
+      tried_at: new Date().toISOString(),
+      outcome: outcome || idea.outcome || null,
+      platform: platform || idea.platform || null,
+    }
     setIdeas((prev) => prev.map((i) => (i.id === idea.id ? { ...i, ...patch } : i)))
     await supabase.from('ideas').update(patch).eq('id', idea.id)
   }
@@ -417,6 +426,22 @@ function TagEditor({ value, onChange, suggestions = [] }) {
   )
 }
 
+// Pick which AI platform an idea was tried on. Tap a selected pill again to clear.
+function PlatformPicker({ value, onChange }) {
+  return (
+    <div className="platforms">
+      {PLATFORMS.map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          className={'tagchip' + (value === k ? ' on' : '')}
+          onClick={() => onChange(value === k ? null : k)}
+        >{label}</button>
+      ))}
+    </div>
+  )
+}
+
 function IdeaCard({ idea, onCheck, onRestore, onTag, innerRef, dragging, dragHandle }) {
   const tags = idea.tags || []
   return (
@@ -436,6 +461,7 @@ function IdeaCard({ idea, onCheck, onRestore, onTag, innerRef, dragging, dragHan
           <div className="card-meta">
             <span>{fmtDate(idea.created_at)}</span>
             {idea.tried && idea.tried_at && <span>· tried {fmtDate(idea.tried_at)}</span>}
+            {idea.tried && idea.platform && <span>· via {platformLabel(idea.platform)}</span>}
           </div>
           {idea.tried && idea.outcome && <div className="card-outcome">{idea.outcome}</div>}
         </button>
@@ -617,8 +643,9 @@ function SortableIdeas({ items, onCheck, onReorder, onTag }) {
 
 function OutcomeModal({ idea, onCancel, onSave }) {
   const [text, setText] = useState(idea.outcome || '')
+  const [platform, setPlatform] = useState(idea.platform || null)
   const [busy, setBusy] = useState(false)
-  const save = async () => { setBusy(true); await onSave(text.trim()) }
+  const save = async () => { setBusy(true); await onSave(text.trim(), platform) }
 
   return (
     <div className="scrim" onClick={onCancel}>
@@ -629,6 +656,8 @@ function OutcomeModal({ idea, onCancel, onSave }) {
           <textarea rows={5} autoFocus placeholder="What happened when you tried it?"
             value={text} onChange={(e) => setText(e.target.value)} />
         </div>
+        <p className="fieldlabel">Which platform did you use?</p>
+        <PlatformPicker value={platform} onChange={setPlatform} />
         <div className="cap-actions">
           <button className="ghost" onClick={onCancel}>Cancel</button>
           <button className="primary" disabled={busy} onClick={save}>Save &amp; archive</button>
@@ -645,6 +674,7 @@ function IdeaDetail({ id }) {
   const [desc, setDesc] = useState('')
   const [outcome, setOutcome] = useState('')
   const [tags, setTags] = useState([])
+  const [platform, setPlatform] = useState(null)
   const [suggestions, setSuggestions] = useState([])
   const [saved, setSaved] = useState(false)
 
@@ -654,6 +684,7 @@ function IdeaDetail({ id }) {
       if (data) {
         setTitle(data.title); setDesc(data.description || '')
         setOutcome(data.outcome || ''); setTags(data.tags || [])
+        setPlatform(data.platform || null)
       }
     })
     supabase.from('ideas').select('tags').then(({ data }) => {
@@ -677,6 +708,7 @@ function IdeaDetail({ id }) {
       description: desc.trim() || null,
       outcome: outcome.trim() || null,
       tags,
+      platform: platform || null,
     }
     setIdea((p) => ({ ...p, ...patch }))
     await supabase.from('ideas').update(patch).eq('id', idea.id)
@@ -725,6 +757,11 @@ function IdeaDetail({ id }) {
             placeholder="What happened when you tried it?" />
         </div>
       </label>
+
+      <div className="fld">
+        <span>Platform used</span>
+        <PlatformPicker value={platform} onChange={setPlatform} />
+      </div>
 
       <div className="detail-meta">
         Added {fmtDate(idea.created_at)}{idea.tried && idea.tried_at ? ` · tried ${fmtDate(idea.tried_at)}` : ''}
