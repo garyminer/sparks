@@ -47,6 +47,7 @@ const platformLabel = (v) => (PLATFORMS.find(([k]) => k === v) || [])[1] || null
 // Home project statuses.
 const STATUSES = [
   ['ideation', 'Ideation'],
+  ['ready', 'Ready'],
   ['in_progress', 'In Progress'],
   ['on_hold', 'On Hold'],
   ['completed', 'Completed'],
@@ -1023,8 +1024,8 @@ function ProjectCapture({ onAdd }) {
               onChange={(e) => setMaterials(e.target.value)}
             />
           </div>
-          <div className="cap-row two-up">
-            <label className="minifield">
+          <div className="cap-row">
+            <label className="minifield full">
               <span>Due date</span>
               <div className="fieldrow">
                 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
@@ -1034,7 +1035,9 @@ function ProjectCapture({ onAdd }) {
                 )}
               </div>
             </label>
-            <label className="minifield">
+          </div>
+          <div className="cap-row">
+            <label className="minifield full">
               <span>Cost</span>
               <input type="number" step="0.01" placeholder="optional"
                 value={cost} onChange={(e) => setCost(e.target.value)} />
