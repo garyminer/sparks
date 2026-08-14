@@ -294,7 +294,21 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
 }
 .cap-row input[type="date"]:focus,
 .cap-row input[type="number"]:focus { border-color: var(--accent); }
-.cap-row.two-up { gap: 8px; }
+.cap-row.two-up { gap: 8px; align-items: flex-start; }
+
+/* labeled mini-fields (due date / cost) in the project capture row */
+.minifield { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.minifield > span { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* date input + its clear button, sitting side by side */
+.fieldrow { display: flex; gap: 6px; align-items: center; }
+.fieldclear {
+  flex: 0 0 auto; width: 34px; height: 34px;
+  background: none; border: 1px solid var(--line); color: var(--muted);
+  border-radius: 8px; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+}
+.fieldclear:hover { color: var(--ink); border-color: var(--danger); }
 
 /* status chip shown in the project card meta row */
 .status-tag { padding: 3px 9px; font-size: 11.5px; }

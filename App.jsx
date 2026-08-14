@@ -1024,9 +1024,21 @@ function ProjectCapture({ onAdd }) {
             />
           </div>
           <div className="cap-row two-up">
-            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            <input type="number" step="0.01" placeholder="Cost (optional)"
-              value={cost} onChange={(e) => setCost(e.target.value)} />
+            <label className="minifield">
+              <span>Due date</span>
+              <div className="fieldrow">
+                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                {dueDate && (
+                  <button type="button" className="fieldclear" aria-label="Clear due date"
+                    onClick={() => setDueDate('')}>✕</button>
+                )}
+              </div>
+            </label>
+            <label className="minifield">
+              <span>Cost</span>
+              <input type="number" step="0.01" placeholder="optional"
+                value={cost} onChange={(e) => setCost(e.target.value)} />
+            </label>
           </div>
           <p className="fieldlabel">Status</p>
           <StatusPicker value={status} onChange={setStatus} />
@@ -1150,8 +1162,12 @@ function ProjectDetail({ id }) {
       </label>
       <div className="fld">
         <span>Due date</span>
-        <div className="cap-row">
+        <div className="cap-row fieldrow">
           <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          {dueDate && (
+            <button type="button" className="fieldclear" aria-label="Clear due date"
+              onClick={() => setDueDate('')}>✕</button>
+          )}
         </div>
       </div>
       <div className="fld">
