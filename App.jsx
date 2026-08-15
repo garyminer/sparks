@@ -1025,7 +1025,7 @@ function ProjectCapture({ onAdd }) {
             />
           </div>
           <div className="cap-row">
-            <label className="minifield full">
+            <div className="minifield full">
               <span>Due date</span>
               <div className="fieldrow">
                 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
@@ -1034,7 +1034,7 @@ function ProjectCapture({ onAdd }) {
                     onClick={() => setDueDate('')}>✕</button>
                 )}
               </div>
-            </label>
+            </div>
           </div>
           <div className="cap-row">
             <label className="minifield full">
