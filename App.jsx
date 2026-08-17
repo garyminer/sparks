@@ -18,6 +18,8 @@ function parseRoute(h) {
   let m
   if (p === '/archive') return { name: 'archive' }
   if (p === '/projects') return { name: 'projects' }
+  if (p === '/admin') return { name: 'admin' }
+  if (p === '/no-access') return { name: 'no-access' }
   if ((m = p.match(/^\/i\/(.+)$/))) return { name: 'idea', id: decodeURIComponent(m[1]) }
   if ((m = p.match(/^\/p\/(.+)$/))) return { name: 'project', id: decodeURIComponent(m[1]) }
   return { name: 'home' }
@@ -54,11 +56,28 @@ const STATUSES = [
 ]
 const statusLabel = (v) => (STATUSES.find(([k]) => k === v) || [])[1] || null
 
+// Every board in the app: [board_key, label, path]. board_key must match the
+// values used in the Supabase `board_access` table. Add a row here whenever
+// a new board is added — this one list drives the toggle, the route guard,
+// and the admin screen's chip labels.
+const BOARDS = [
+  ['ideas', 'AI Ideas', '/'],
+  ['projects', 'Home Projects', '/projects'],
+]
+
+// Which board a given route belongs to (null = not board-gated, e.g. admin).
+const routeBoard = (name) => {
+  if (isProjectRoute(name)) return 'projects'
+  if (name === 'admin' || name === 'no-access') return null
+  return 'ideas'
+}
+
 /* ================================ App ================================== */
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [checking, setChecking] = useState(true)
+  const [access, setAccess] = useState(null) // null = not loaded yet; { isAdmin, boards: Set }
   const route = parseRoute(useHashRoute())
 
   useEffect(() => {
@@ -70,17 +89,58 @@ export default function App() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
+  // Once logged in, find out which boards this person can see and whether
+  // they're an admin. Re-runs on sign-in/out via the session dependency.
+  useEffect(() => {
+    if (!session) { setAccess(null); return }
+    let cancelled = false
+    ;(async () => {
+      const uid = session.user.id
+      const [{ data: profile }, { data: grants }] = await Promise.all([
+        supabase.from('profiles').select('is_admin').eq('id', uid).maybeSingle(),
+        supabase.from('board_access').select('board_key').eq('user_id', uid),
+      ])
+      if (cancelled) return
+      setAccess({
+        isAdmin: !!(profile && profile.is_admin),
+        boards: new Set((grants || []).map((g) => g.board_key)),
+      })
+    })()
+    return () => { cancelled = true }
+  }, [session])
+
+  // Route guard: bounce away from a board this person hasn't been granted,
+  // or from /admin if they aren't an admin. Belt-and-suspenders alongside
+  // the RLS policies — this just keeps the UI honest.
+  useEffect(() => {
+    if (!access) return
+    const wantsAdmin = route.name === 'admin'
+    const board = routeBoard(route.name)
+    const blocked = (board && !access.boards.has(board)) || (wantsAdmin && !access.isAdmin)
+    if (blocked) {
+      const fallback = BOARDS.find(([key]) => access.boards.has(key))
+      navigate(fallback ? fallback[2] : '/no-access')
+    }
+  }, [access, route.name])
+
   let content
-  if (checking) content = <Splash />
+  if (checking || (session && !access)) content = <Splash />
   else if (!session) content = <SignIn />
-  else content = (
-    <Shell route={route}>
-      {route.name === 'idea' ? <IdeaDetail id={route.id} />
-        : route.name === 'project' ? <ProjectDetail id={route.id} />
-        : route.name === 'projects' ? <ProjectBoard />
-        : <Board tab={route.name === 'archive' ? 'archive' : 'active'} />}
-    </Shell>
-  )
+  else {
+    const wantsAdmin = route.name === 'admin'
+    const board = routeBoard(route.name)
+    const blocked = (board && !access.boards.has(board)) || (wantsAdmin && !access.isAdmin)
+    content = blocked ? <Splash /> : (
+      <Shell route={route} access={access}>
+        {route.name === 'admin' ? <AdminScreen />
+          : route.name === 'no-access' ? <NoAccess />
+          : route.name === 'idea' ? <IdeaDetail id={route.id} />
+          : route.name === 'project' ? <ProjectDetail id={route.id} />
+          : route.name === 'projects' ? <ProjectBoard />
+          : <Board tab={route.name === 'archive' ? 'archive' : 'active'} />}
+      </Shell>
+    )
+  }
 
   return <>{content}<KeyboardBar /></>
 }
@@ -134,34 +194,44 @@ function Logo() {
   )
 }
 
-// Switches between the two boards. Lives inside .wrap, so it automatically
-// picks up whichever theme (--accent etc.) is active for the current mode.
-function ModeToggle({ mode }) {
+// Switches between whichever boards this person has been granted. Lives
+// inside .wrap, so it automatically picks up whichever theme (--accent etc.)
+// is active for the current mode.
+function ModeToggle({ mode, access }) {
+  const boards = BOARDS.filter(([key]) => access.boards.has(key))
   return (
     <nav className="tabs modetoggle">
-      <button className={mode === 'ideas' ? 'on' : ''} onClick={() => navigate('/')}>AI Ideas</button>
-      <button className={mode === 'projects' ? 'on' : ''} onClick={() => navigate('/projects')}>Home Projects</button>
+      {boards.map(([key, label, path]) => (
+        <button key={key} className={mode === key ? 'on' : ''} onClick={() => navigate(path)}>{label}</button>
+      ))}
     </nav>
   )
 }
 
-function Shell({ route, children }) {
+function Shell({ route, access, children }) {
+  const isAdminRoute = route.name === 'admin'
   const mode = isProjectRoute(route.name) ? 'projects' : 'ideas'
   const tab = route.name === 'archive' ? 'archive' : route.name === 'home' ? 'active' : null
+  const themed = mode === 'projects' && !isAdminRoute
 
   return (
-    <div className={'wrap' + (mode === 'projects' ? ' theme-projects' : '')}>
+    <div className={'wrap' + (themed ? ' theme-projects' : '')}>
       <header className="topbar">
         <button className="brand" onClick={() => navigate(mode === 'projects' ? '/projects' : '/')}>
           <Logo />
           <span>Sparks</span>
         </button>
-        <button className="signout" onClick={() => supabase.auth.signOut()}>Sign out</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {access.isAdmin && !isAdminRoute && (
+            <button className="signout" onClick={() => navigate('/admin')}>Admin</button>
+          )}
+          <button className="signout" onClick={() => supabase.auth.signOut()}>Sign out</button>
+        </div>
       </header>
 
-      <ModeToggle mode={mode} />
+      {!isAdminRoute && access.boards.size > 1 && <ModeToggle mode={mode} access={access} />}
 
-      {tab && (
+      {!isAdminRoute && tab && (
         <nav className="tabs">
           <button className={tab === 'active' ? 'on' : ''} onClick={() => navigate('/')}>Ideas</button>
           <button className={tab === 'archive' ? 'on' : ''} onClick={() => navigate('/archive')}>Tried</button>
@@ -169,13 +239,100 @@ function Shell({ route, children }) {
       )}
 
       <main>{children}</main>
-      <footer className="foot">Capture fast · prioritize · follow through · v2.0</footer>
+      <footer className="foot">Capture fast · prioritize · follow through · v2.1</footer>
     </div>
   )
 }
 
 function Splash() {
   return <div className="splash"><Logo /><span>Sparks</span></div>
+}
+
+/* -------------------------------- admin --------------------------------- */
+
+// Board-access management: one card per user, tap a board chip to grant or
+// revoke it. Reuses the same card/tagchip look as the rest of the app, so
+// no new CSS is needed.
+function AdminScreen() {
+  const [profiles, setProfiles] = useState(null) // null = loading
+  const [accessMap, setAccessMap] = useState({}) // { [userId]: Set(board_key) }
+
+  const load = async () => {
+    const [{ data: profs }, { data: grants }] = await Promise.all([
+      supabase.from('profiles').select('id, email, is_admin, created_at').order('created_at', { ascending: true }),
+      supabase.from('board_access').select('user_id, board_key'),
+    ])
+    const map = {}
+    ;(grants || []).forEach((g) => {
+      if (!map[g.user_id]) map[g.user_id] = new Set()
+      map[g.user_id].add(g.board_key)
+    })
+    setAccessMap(map)
+    setProfiles(profs || [])
+  }
+
+  useEffect(() => { load() }, [])
+
+  const toggleBoard = async (userId, boardKey, has) => {
+    setAccessMap((prev) => {
+      const next = { ...prev }
+      const set = new Set(next[userId] || [])
+      has ? set.delete(boardKey) : set.add(boardKey)
+      next[userId] = set
+      return next
+    })
+    if (has) await supabase.from('board_access').delete().eq('user_id', userId).eq('board_key', boardKey)
+    else await supabase.from('board_access').insert({ user_id: userId, board_key: boardKey })
+  }
+
+  if (profiles === null) return <p className="muted pad">Loading…</p>
+
+  return (
+    <div className="detail">
+      <button className="ghost back" onClick={() => navigate('/')}>← Back</button>
+      <h2>Admin — board access</h2>
+      <p className="muted small">Tap a board to grant or revoke it for that person. New users are added in the Supabase dashboard first (Authentication → Add user); they'll show up here right after.</p>
+      {profiles.length === 0 ? (
+        <p className="muted pad">No users yet.</p>
+      ) : (
+        <ul className="cards">
+          {profiles.map((p) => {
+            const granted = accessMap[p.id] || new Set()
+            return (
+              <li key={p.id} className="card">
+                <div className="card-main">
+                  <div className="card-body">
+                    <div className="card-title">{p.email || p.id}{p.is_admin ? ' · admin' : ''}</div>
+                    <div className="card-meta"><span>Joined {fmtDate(p.created_at)}</span></div>
+                    <div className="platforms">
+                      {BOARDS.map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className={'tagchip' + (granted.has(key) ? ' on' : '')}
+                          onClick={() => toggleBoard(p.id, key, granted.has(key))}
+                        >{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// Shown if someone is logged in but hasn't been granted any board yet.
+function NoAccess() {
+  return (
+    <div className="pad">
+      <p className="muted">You don't have access to any boards yet. Ask the admin to grant you one.</p>
+      <button className="ghost" onClick={() => supabase.auth.signOut()}>Sign out</button>
+    </div>
+  )
 }
 
 /* ------------------------------- auth ---------------------------------- */
